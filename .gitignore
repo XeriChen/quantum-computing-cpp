@@ -11,6 +11,9 @@ install_manifest.txt
 CTestTestfile.cmake
 Testing/
 
+# Visual Studio Code
+.vscode/
+
 # Prerequisites
 *.d
 

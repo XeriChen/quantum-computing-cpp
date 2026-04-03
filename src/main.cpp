@@ -1,84 +1,160 @@
-#include "quantum/circuit.hpp"
-
-#include <format>
-#include <iostream>
+#include <cmath>
+#include <complex>
+#include <print>
+#include <random>
 #include <vector>
 
-// ────────────────────────────────────────────────────────────────────────────
-// Helper: run a named example and print its statevector.
-// ────────────────────────────────────────────────────────────────────────────
-static void run_example(std::string_view title, quantum::QuantumCircuit circuit) {
-    std::cout << "\n══════════════════════════════════════════\n";
-    std::cout << std::format("  {}\n", title);
-    std::cout << "══════════════════════════════════════════\n";
-    circuit.print();
-    std::cout << '\n';
-    auto reg = circuit.run();
-    reg.print_state();
+#include "types.hpp"
+using std::println;
+using std::scanf;
+using std::vector;
+
+using quantum::Complex;
+
+std::random_device rd;
+std::mt19937 gen(rd());
+std::uniform_real_distribution<> dis(0.0, 1.0);
+void qbit_normalize(vector<Complex>& qbit) {
+  // forall qubit, let the first index that not eq 0, change it to real number.
+  // the let normalization of the qubit.'
+  double sum = 0.0;
+  Complex conjugate_first = 0.0;  // the first index that not eq 0.
+  for (auto& x : qbit) {
+    if (std::norm(x) > 1e-9) {
+      conjugate_first = std::conj(x);
+      break;
+    }
+  }
+  for (auto& x : qbit) {
+    x *= conjugate_first;
+    sum += std::norm(x);
+  }
+  if (sum < 1e-9) {
+    qbit[0] = 1.0;
+  } else {
+    for (auto& x : qbit) {
+      x /= std::sqrt(sum);
+    }
+  }
 }
-
-// ────────────────────────────────────────────────────────────────────────────
-// Example 1 – Single qubit in superposition
-//   H|0⟩ = (|0⟩ + |1⟩) / √2
-// ────────────────────────────────────────────────────────────────────────────
-static void example_superposition() {
-    run_example("Superposition: H|0⟩",
-                quantum::QuantumCircuit{1}.h(0));
+void qbit_init(vector<Complex>& qbit) {
+  for (auto& x : qbit) {
+    x = Complex(dis(gen), dis(gen));
+  }
+  qbit_normalize(qbit);
 }
+// #define QBITS_DEBUG
+bool qbit_measure(vector<Complex>& qbit, int it) {
+  const int N = static_cast<int>(qbit.size());
+  const int half = 1 << it;
+  const int stride = 1 << (it + 1);
 
-// ────────────────────────────────────────────────────────────────────────────
-// Example 2 – Bell state (maximally entangled two-qubit state)
-//   (H ⊗ I) · CNOT |00⟩ = (|00⟩ + |11⟩) / √2
-// ────────────────────────────────────────────────────────────────────────────
-static void example_bell_state() {
-    run_example("Bell state: (|00⟩ + |11⟩) / √2",
-                quantum::QuantumCircuit{2}.h(0).cnot(0, 1));
-}
+  double prob0 = 0.0;
+  for (int base = 0; base < N; base += stride) {
+    for (int offset = 0; offset < half; ++offset) {
+      prob0 += std::norm(qbit[base + offset]);
+#ifdef QBITS_DEBUG
+      println("i+j = {:d}", base + offset);
+#endif
+    }
+  }
 
-// ────────────────────────────────────────────────────────────────────────────
-// Example 3 – GHZ state (three-qubit entanglement)
-//   (|000⟩ + |111⟩) / √2
-// ────────────────────────────────────────────────────────────────────────────
-static void example_ghz_state() {
-    run_example("GHZ state: (|000⟩ + |111⟩) / √2",
-                quantum::QuantumCircuit{3}.h(0).cnot(0, 1).cnot(0, 2));
-}
+#ifdef QBITS_DEBUG
+  println("sum(prob0) = {:.6f}", prob0);
+#endif
+  // 健壮性保证
+  if (prob0 <= 0.0) {
+    prob0 = 0.0;
+  } else if (prob0 >= 1.0) {
+    prob0 = 1.0;
+  }
 
-// ────────────────────────────────────────────────────────────────────────────
-// Example 4 – Quantum teleportation circuit (circuit only, no classical ops)
-//   Prepares |ψ⟩ = X|0⟩ on qubit 0, creates Bell pair on (1,2),
-//   then performs the Bell measurement half of the protocol.
-// ────────────────────────────────────────────────────────────────────────────
-static void example_teleportation_prep() {
-    run_example("Teleportation prep: X on q0, Bell pair on (q1, q2)",
-                quantum::QuantumCircuit{3}
-                    .x(0)           // prepare |ψ⟩ = |1⟩ on qubit 0
-                    .h(1)           // entangle qubit 1 and 2
-                    .cnot(1, 2)
-                    .cnot(0, 1)     // Bell measurement (first half)
-                    .h(0));
-}
-
-// ────────────────────────────────────────────────────────────────────────────
-// Example 5 – Phase kickback: Hadamard + T + Hadamard
-// ────────────────────────────────────────────────────────────────────────────
-static void example_phase_kickback() {
-    run_example("Phase kickback: H → T → H",
-                quantum::QuantumCircuit{1}.h(0).t(0).h(0));
-}
-
-// ────────────────────────────────────────────────────────────────────────────
-int main() {
-    std::cout << "╔══════════════════════════════════════════╗\n"
-                 "║  Quantum Computing C++23 Simulator       ║\n"
-                 "╚══════════════════════════════════════════╝\n";
-
-    example_superposition();
-    example_bell_state();
-    example_ghz_state();
-    example_teleportation_prep();
-    example_phase_kickback();
-
-    std::cout << "\nDone.\n";
+  const double r = dis(gen);
+  const bool outcome0 = (r < prob0);
+  if (outcome0) {
+    const double inv = 1.0 / std::sqrt(prob0);
+    for (int i = 0; i < N; i += (1 << (it + 1))) {
+      for (int j = 0; j < (1 << it); j++) {
+        qbit[i + j] *= inv;
+      }
+    }
+    for (int i = (1 << it); i < N; i += (1 << (it + 1))) {
+      for (int j = 0; j < (1 << it); j++) {
+        qbit[i + j] = 0.0;
+      }
+    }
     return 0;
+  } else {
+    const double prob1 = 1.0 - prob0;
+    const double inv = 1.0 / std::sqrt(prob1);
+    for (int i = 0; i < N; i += (1 << (it + 1))) {
+      for (int j = 0; j < (1 << it); j++) {
+        qbit[i + j] = 0.0;
+      }
+    }
+    for (int i = (1 << it); i < N; i += (1 << (it + 1))) {
+      for (int j = 0; j < (1 << it); j++) {
+        qbit[i + j] *= inv;
+      }
+    }
+    return 1;
+  }
+}
+
+int qbit_measure_all(vector<Complex>& qbit) {
+  const int N = static_cast<int>(qbit.size());
+  double total = 0.0;
+  vector<double> cdf(N);
+  for (int i = 0; i < N; ++i) {
+    total += std::norm(qbit[i]);
+    cdf[i] = total;
+  }
+  if (total <= 0.0) {
+    qbit.assign(N, 0.0);
+    if (N > 0) {
+      qbit[0] = 1.0;
+    }
+    return 0;
+  }
+
+  const double r = dis(gen) * total;
+  int lo = 0;
+  int hi = N - 1;
+  while (lo < hi) {
+    const int mid = lo + (hi - lo) / 2;
+    if (r <= cdf[mid]) {
+      hi = mid;
+    } else {
+      lo = mid + 1;
+    }
+  }
+
+  qbit.assign(N, 0.0);
+  qbit[lo] = 1.0;
+  return lo;
+}
+
+int main() {
+  int n;
+  // cin >> n;
+  n = 3;
+  int bit_num = n;
+  int dim_N = 1 << bit_num;
+  vector<Complex> qbit(dim_N);
+  qbit_init(qbit);
+
+  // test the normalization of the qubit.
+  double sum = 0.0;
+  for (auto& x : qbit) {
+    sum += std::norm(x);
+  }
+  println("The nomalization of {:.3f}", sum);
+  for (auto& x : qbit) {
+    println("real is {:.3f}, imag is {:.3f}", x.real(), x.imag());
+  }
+  for (int it = 0; it < bit_num; it++) {
+    println("{}", qbit_measure(qbit, it));
+  }
+
+  return 0;
 }

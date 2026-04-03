@@ -20,7 +20,7 @@ else()
 endif()
 
 # ── Options ─────────────────────────────────────────────────────────────────
-option(BUILD_TESTS "Build unit tests" ON)
+option(BUILD_TESTS "Build unit tests" OFF)
 
 # ── Subdirectories ───────────────────────────────────────────────────────────
 add_subdirectory(src)
